@@ -40,9 +40,21 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # ---- paths / config ----------------------------------------------------------
-PROJECT_ROOT = Path(__file__).resolve().parents[3]  # mcp-server/src/pdf_extract_mcp -> project root
-STATE_DIR = PROJECT_ROOT / "state"
-STATE_DIR.mkdir(exist_ok=True)
+# Self-contained package: core extraction lives in .extract (bundled in the
+# public repo), not in an external parent project. State must live in a writable
+# per-user location because installed bundles / site-packages are read-only.
+def _state_dir() -> Path:
+    override = os.environ.get("PDF_EXTRACT_STATE_DIR")
+    candidate = Path(override) if override else (Path.home() / ".cache" / "pdf-extract-mcp")
+    try:
+        candidate.mkdir(parents=True, exist_ok=True)
+        return candidate
+    except Exception:
+        fallback = Path(tempfile.gettempdir()) / "pdf-extract-mcp"
+        fallback.mkdir(parents=True, exist_ok=True)
+        return fallback
+
+STATE_DIR = _state_dir()
 USAGE_LOG = STATE_DIR / "mcp_usage.jsonl"
 QUOTA_FILE = STATE_DIR / "mcp_quota.json"
 
@@ -77,16 +89,24 @@ except ImportError:  # mcp 1.x
 mcp = MCPServer("pdf-extract")
 
 
-# ---- core extraction (reuse project extract.py, no copy-paste) ---------------
-sys.path.insert(0, str(PROJECT_ROOT))
+# ---- core extraction (bundled in-package: .extract) -------------------------
 try:
-    from extract import extract_tables_digital, extract_text_digital, tables_to_dataframe  # noqa: E402
-except Exception:  # pragma: no cover - allow import without heavy deps for schema
-    extract_tables_digital = extract_text_digital = tables_to_dataframe = None
+    from .extract import extract_tables_digital, extract_text_digital, tables_to_dataframe  # noqa: E402
+except Exception:  # pragma: no cover - allow script-style execution too
+    try:
+        from extract import extract_tables_digital, extract_text_digital, tables_to_dataframe  # noqa: E402
+    except Exception:
+        extract_tables_digital = extract_text_digital = tables_to_dataframe = None
 
 
-import pandas as pd  # noqa: E402
 import pdfplumber  # noqa: E402
+
+# pandas is optional: the in-package extract.tables_to_dataframe returns a
+# lightweight list-of-rows table shim when pandas is absent (MCPB bundle path).
+try:  # noqa: E402
+    import pandas as pd  # type: ignore
+except Exception:  # pragma: no cover
+    pd = None
 
 
 # ---- telemetry + quota -------------------------------------------------------
@@ -284,8 +304,20 @@ def extract_pdf(
             result["rows_json"] = json.loads(df.to_json(orient="records", force_ascii=False))
         else:
             buf = io.BytesIO()
-            with pd.ExcelWriter(buf, engine="openpyxl") as xw:
-                df.to_excel(xw, index=False, sheet_name="extracted")
+            from openpyxl import Workbook
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "extracted"
+            ws.append([str(c) for c in df.columns])
+            # Shims expose _rows; real pandas DataFrames expose itertuples/iterrows
+            rows = getattr(df, "_rows", None)
+            if rows is not None:
+                for _r in rows:
+                    ws.append(list(_r))
+            else:
+                for _r in df.itertuples(index=False, name=None):
+                    ws.append(list(_r))
+            wb.save(buf)
             result["format"] = "xlsx"
             result["xlsx_base64"] = base64.b64encode(buf.getvalue()).decode()
 
