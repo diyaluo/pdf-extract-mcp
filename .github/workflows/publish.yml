@@ -2,12 +2,22 @@ name: Publish MCP Server
 
 # Build & push the OCI image to ghcr.io, then publish metadata to the official
 # Model Context Protocol registry using GitHub OIDC (no long-lived tokens).
-# Triggered by pushing a tag like v0.1.0
+# Triggered by pushing a tag like v0.1.0.
+#
+# PREREQUISITE (one-time, web UI only — GitHub has no stable API for it):
+#   Package settings -> Manage Actions access -> add repo "pdf-extract-mcp"
+#   https://github.com/users/diyaluo/packages/container/pdf-extract-mcp/settings
+#   Also set the package visibility to Public there (registry pulls anonymously).
 on:
   push:
     tags:
       - "v*"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      skip_image:
+        description: "Skip image build/push (image already exists)"
+        required: false
+        default: "false"
 
 permissions:
   contents: read
@@ -21,6 +31,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Log in to GHCR
+        if: ${{ github.event.inputs.skip_image != 'true' }}
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -28,6 +39,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push image
+        if: ${{ github.event.inputs.skip_image != 'true' }}
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -43,8 +55,11 @@ jobs:
           mcp-publisher --version
 
       - name: Pin image tag in server.json
+        env:
+          IMAGE_TAG: ${{ github.ref_name }}
         run: |
-          sed -i "s#ghcr.io/diyaluo/pdf-extract-mcp:v0.1.0#ghcr.io/${GITHUB_REPOSITORY_OWNER}/pdf-extract-mcp:${GITHUB_REF_NAME}#" server.json
+          sed -i "s#ghcr.io/diyaluo/pdf-extract-mcp:v[0-9.]*#ghcr.io/${GITHUB_REPOSITORY_OWNER}/pdf-extract-mcp:${IMAGE_TAG}#" server.json
+          grep 'identifier' server.json
           mcp-publisher validate
 
       - name: Publish to MCP Registry (OIDC)
