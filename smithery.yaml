@@ -1,0 +1,25 @@
+# Smithery.ai configuration — pdf-extract-mcp
+# Docs: https://smithery.ai/docs/servers/quickstart
+# Must sit at the repository root that Smithery points at.
+startCommand:
+  type: stdio
+  # JSON Schema for configuration options exposed to users installing the server.
+  configSchema:
+    type: object
+    properties:
+      api_key:
+        type: string
+        title: API Key (optional)
+        description: Paid key to bypass the free 100-pages/30d tier. Leave empty for the free tier.
+    required: []
+  # Produces the CLI command. Smithery installs the project (pyproject with
+  # a pdf-extract-mcp console script) and runs stdio.
+  commandFunction:
+    |-
+    (config) => ({
+      command: 'pdf-extract-mcp',
+      args: [],
+      env: config.api_key ? { PDF_EXTRACT_API_KEY: config.api_key } : {}
+    })
+  exampleConfig:
+    api_key: ''
