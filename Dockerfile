@@ -1,5 +1,11 @@
 FROM python:3.12-slim
 
+# Required by the official MCP Registry for OCI ownership verification.
+# Value MUST match the server "name" in server.json.
+LABEL org.opencontainers.image.title="pdf-extract-mcp"
+LABEL io.modelcontextprotocol.mcp.version="0.1.0"
+LABEL io.modelcontextprotocol.server.name="io.github.diyaluo/pdf-extract-mcp"
+
 WORKDIR /app
 
 # Install deps first for layer caching

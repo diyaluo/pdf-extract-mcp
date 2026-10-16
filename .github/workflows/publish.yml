@@ -1,0 +1,51 @@
+name: Publish MCP Server
+
+# Build & push the OCI image to ghcr.io, then publish metadata to the official
+# Model Context Protocol registry using GitHub OIDC (no long-lived tokens).
+# Triggered by pushing a tag like v0.1.0
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/pdf-extract-mcp:${{ github.ref_name }}
+            ghcr.io/${{ github.repository_owner }}/pdf-extract-mcp:latest
+
+      - name: Install mcp-publisher
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_$( [ "$(uname -m)" = aarch64 ] && echo arm64 || echo amd64 ).tar.gz" -o /tmp/mcp-pub.tgz
+          tar xzf /tmp/mcp-pub.tgz -C /usr/local/bin mcp-publisher
+          mcp-publisher --version
+
+      - name: Pin image tag in server.json
+        run: |
+          sed -i "s#ghcr.io/diyaluo/pdf-extract-mcp:v0.1.0#ghcr.io/${GITHUB_REPOSITORY_OWNER}/pdf-extract-mcp:${GITHUB_REF_NAME}#" server.json
+          mcp-publisher validate
+
+      - name: Publish to MCP Registry (OIDC)
+        run: mcp-publisher login github-oidc && mcp-publisher publish
