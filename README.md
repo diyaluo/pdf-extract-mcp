@@ -11,10 +11,24 @@ A Model Context Protocol (MCP) server that extracts tables and text from
 ## What it does
 
 - `extract_pdf` — upload a digital PDF (base64 or URL), get back structured
-  table rows as CSV / JSON records / XLSX. Sensitive fields are masked by
-  default: national ID, phone, bank card, unified social credit code, email,
-  passport, Chinese personal names, organization names.
+  table rows as CSV / JSON records / XLSX.
 - `health` — service status and free-tier limits.
+
+**Table detection** tries three strategies per page: ruled tables → explicit
+columns derived from the header row's own x-positions (handles statement PDFs
+with *no* grid lines, the common case for Western banks) → generic text
+alignment.
+
+**PII redaction** (on by default) covers:
+
+| Region | Masked |
+|---|---|
+| US / international | SSN, EIN/TIN, IBAN, SWIFT/BIC, routing/ABA, account numbers, card numbers (plain **and** `4111 1111 1111 1111` / dashed), US & international phone, email |
+| China | 18/15-digit national ID, mobile phone, bank card, USCC (统一社会信用代码), passport, 2–3 char personal names, organization keywords |
+
+Bank identifiers that are ambiguous as bare numbers (routing/account/sort code)
+are masked **only when they follow a label**, so reference numbers and amounts
+stay readable. Amounts, dates and descriptions are never altered.
 
 Scanned / image-only PDFs are explicitly rejected (`SCANNED_PDF_UNSUPPORTED`)
 — the free tier covers digital PDFs only (OCR is a paid-tier candidate).
@@ -75,14 +89,21 @@ extract_pdf(
 ## Telemetry
 
 Every call is appended (best-effort, never blocks extraction) to
-`../state/mcp_usage.jsonl`. The P0 validation metric is **real non-self
-traffic**: third-party agents discovering and calling the server, not our own
-tests. Clients are recorded as salted hashes, no PDF content is logged.
+`~/.cache/pdf-extract-mcp/mcp_usage.jsonl` (override with
+`PDF_EXTRACT_STATE_DIR`). Clients are recorded as salted hashes; **no PDF
+content and no PII are ever logged**.
+
+> Note: as a distributed stdio bundle this file lives on the *user's* machine,
+> so the publisher cannot read it. Real external usage is read from the hosting
+> registry's owner API instead (`GET /servers/{namespace}/{name}/logs` on
+> Smithery returns the invocation count).
 
 ## Stack
 
-`mcp >= 1.2` (works on both mcp 1.x FastMCP and mcp 2.x MCPServer),
-pdfplumber, pandas, openpyxl. Python 3.10+.
+`mcp >= 1.2` (works on both mcp 1.x FastMCP and mcp 2.x MCPServer), pdfplumber,
+openpyxl. **pandas is optional** — when absent the package falls back to a
+lightweight list-of-rows table (stdlib CSV/JSON + openpyxl), which keeps the
+distributable bundle small. Python 3.10+.
 
 ## License
 
