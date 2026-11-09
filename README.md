@@ -1,5 +1,7 @@
 # pdf-extract-mcp
 
+> 📄 **Project landing page (use cases and install guide): https://diyaluo.github.io/pdf-extract-mcp/**
+
 A Model Context Protocol (MCP) server that extracts tables and text from
 **digital (text-layer) PDFs** — bank statements, invoices, bills — into
 **CSV / JSON / Excel**, with automatic **PII redaction**.
